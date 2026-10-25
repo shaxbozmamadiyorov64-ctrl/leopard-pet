@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><title>Леопард — виртуальный питомец</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>
+:root{--bg1:#243447;--bg2:#4a3350;--fg:#f5f0e6;--pn:rgba(18,16,24,.88);--ac:#e8b04a;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg1:#0f1620;--bg2:#2a1d30}}
+:root[data-theme="dark"]{--bg1:#0f1620;--bg2:#2a1d30}
+html,body{height:100%;margin:0;overflow:hidden;color:var(--fg);font:15px/1.4 system-ui,sans-serif;background:linear-gradient(160deg,var(--bg1),var(--bg2));touch-action:none;-webkit-user-select:none;user-select:none}
+#c{position:fixed;inset:0;width:100%;height:100%}
+#hud{position:fixed;top:calc(10px + env(safe-area-inset-top,0px));left:12px;display:flex;gap:8px;z-index:5}
+#hud span,#gear{background:var(--pn);border-radius:16px;padding:5px 11px;font-size:13px}
+#gear{position:fixed;top:calc(10px + env(safe-area-inset-top,0px));right:12px;border:0;color:var(--fg);font-size:17px;z-index:6}
+#msg{position:fixed;top:calc(60px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);background:var(--pn);padding:8px 14px;border-radius:14px;opacity:0;transition:opacity .4s;pointer-events:none;text-align:center;max-width:86%;z-index:5}
+#bub{position:fixed;background:#fff;color:#222;padding:7px 11px;border-radius:14px;font-size:14px;max-width:220px;opacity:0;transition:opacity .3s;pointer-events:none;z-index:5}
+#tip{position:fixed;bottom:calc(12px + env(safe-area-inset-bottom,0px));width:100%;text-align:center;font-size:12px;opacity:.6;pointer-events:none}
+.pn{position:fixed;left:50%;transform:translateX(-50%);width:min(94%,420px);background:var(--pn);border-radius:16px;padding:12px 14px;z-index:9;touch-action:auto;-webkit-user-select:text;user-select:text;box-sizing:border-box}
+#set{top:calc(56px + env(safe-area-inset-top,0px));max-height:70%;overflow:auto}
+#chat{bottom:calc(10px + env(safe-area-inset-bottom,0px))}
+.pn[hidden]{display:none}
+.pn label{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:7px 0}
+.s{font-size:12px;opacity:.7;margin:6px 0}
+#lg{max-height:32vh;overflow:auto;display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+.m{padding:6px 10px;border-radius:12px;max-width:85%}
+.m.l{background:#3a3040;align-self:flex-start}.m.u{background:var(--ac);color:#201808;align-self:flex-end}
+#row{display:flex;gap:6px}#row input{flex:1;padding:9px;border-radius:10px;border:0;font-size:16px}
+#row button,#x{border:0;border-radius:10px;padding:8px 12px;background:var(--ac);color:#201808;font-size:15px}
+#x{background:none;color:var(--fg);float:right;padding:0 4px}
+</style></head><body>
+<canvas id="c"></canvas>
+<div id="hud"><span id="bat">🔋 --%</span><span id="md">…</span></div>
+<button id="gear" aria-label="Настройки">⚙</button>
+<div id="msg"></div><div id="bub"></div>
+<div id="tip">Гладь, нажимай на голову, хвост, лапу · двойное касание — чат</div>
+<div id="set" class="pn" hidden>
+<label><span>Звуки животных</span><input type="checkbox" id="sn"></label>
+<label><span>Громкость</span><input type="range" id="vo" min="0" max="1" step=".05"></label>
+<label><span>Частота анимаций</span><input type="range" id="fq" min=".5" max="2" step=".1"></label>
+<hr style="opacity:.2">
+<label><span>Симуляция батареи (тест)</span><input type="checkbox" id="sm"></label>
+<label><span>Заряд: <b id="sv"></b>%</span><input type="range" id="sl" min="1" max="100"></label>
+<label><span>Зарядка подключена</span><input type="checkbox" id="sc"></label>
+<p class="s" id="inf"></p><p class="s" id="tr"></p>
+<p class="s">Показ поверх других приложений: в браузере недоступен. В настоящем Android‑приложении это делается через SYSTEM_ALERT_WINDOW с запросом разрешения; фоновая анимация зависит от ограничений системы.</p>
+</div>
+<div id="chat" class="pn" hidden>
+<button id="x">✕</button><div class="s">Словарь EN → UZ (офлайн, без ИИ)</div>
+<div id="lg"></div><div id="row"><input id="in" placeholder="hello, water, friend…" autocomplete="off"><button id="go">→</button></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const T=THREE,$=i=>document.getElementById(i),rn=a=>a[Math.random()*a.length|0],lp=(a,b,t)=>a+(b-a)*t;
+let S={vol:.6,snd:true,freq:1,sim:false,simLvl:60,simChg:false},P={trust:10,pets:0};
+try{Object.assign(S,JSON.parse(localStorage.getItem('leoS')||'{}'));Object.assign(P,JSON.parse(localStorage.getItem('leo')||'{}'))}catch(e){}
+const save=()=>{try{localStorage.setItem('leo',JSON.stringify(P));localStorage.setItem('leoS',JSON.stringify(S))}catch(e){}};
+/* ---------- scene ---------- */
+const R=new T.WebGLRenderer({canvas:$('c'),alpha:true,antialias:true});R.setPixelRatio(Math.min(devicePixelRatio,2));
+const sc=new T.Scene(),cam=new T.PerspectiveCamera(40,1,.1,100);
+sc.add(new T.HemisphereLight(0xfff1d6,0x334455,.95));const dl=new T.DirectionalLight(0xffffff,.9);dl.position.set(3,6,5);sc.add(dl);
+let vis=3;
+function rs(){const w=innerWidth,h=innerHeight;R.setSize(w,h,false);cam.aspect=w/h;const z=Math.min(16,Math.max(8,6.6/cam.aspect));cam.position.set(0,1.7,z);cam.lookAt(0,1,0);cam.updateProjectionMatrix();vis=z*Math.tan(20*Math.PI/180)*cam.aspect}
+addEventListener('resize',rs);rs();
+function furTex(){const c=document.createElement('canvas');c.width=512;c.height=256;const g=c.getContext('2d');
+g.fillStyle='#d9a441';g.fillRect(0,0,512,256);const gr=g.createLinearGradient(0,0,0,256);gr.addColorStop(0,'rgba(120,70,20,.4)');gr.addColorStop(.5,'rgba(0,0,0,0)');gr.addColorStop(1,'rgba(255,240,200,.5)');g.fillStyle=gr;g.fillRect(0,0,512,256);
+let s=7;const r=()=>(s=s*16807%2147483647)/2147483647;
+for(let i=0;i<150;i++){const x=r()*512,y=r()*256,q=6+r()*7;g.fillStyle='rgba(170,112,36,.6)';g.beginPath();g.arc(x,y,q*.85,0,7);g.fill();g.fillStyle='#17100a';for(let k=0;k<7;k++){const a=k*.9+r()*.3;g.beginPath();g.arc(x+Math.cos(a)*q,y+Math.sin(a)*q,2+r()*2.2,0,7);g.fill()}}
+return new T.CanvasTexture(c)}
+const mat=(c,m)=>new T.MeshStandardMaterial({color:c,roughness:.9,map:m||null});
+const fm=mat(0xffffff,furTex()),lm=mat(0xf0deb4),dm=mat(0x18110b),pm=mat(0x7a4a3a),gm=new T.MeshStandardMaterial({color:0xc8d84a,roughness:.3,emissive:0x303808});
+const sph=new T.SphereGeometry(1,18,12);
+const M=(g,m,p,x=0,y=0,z=0,sx=1,sy=1,sz=1,part)=>{const o=new T.Mesh(g,m);o.position.set(x,y,z);o.scale.set(sx,sy,sz);if(part)o.userData.part=part;p.add(o);return o};
+/* ---------- leopard ---------- */
+const L=new T.Group(),torso=new T.Group();L.add(torso);L.scale.setScalar(.75);sc.add(L);
+M(sph,fm,torso,.65,0,0,.7,.5,.46,'body');M(sph,fm,torso,0,-.02,0,.85,.46,.43,'body');M(sph,fm,torso,-.7,.03,0,.7,.52,.48,'body');M(sph,lm,torso,0,-.3,0,.8,.2,.3,'body');
+const nk=M(sph,fm,torso,1.12,.28,0,.5,.3,.3,'body');nk.rotation.z=.6;
+const H=new T.Group();H.position.set(1.5,.52,0);torso.add(H);
+M(sph,fm,H,0,0,0,.4,.34,.36,'head');M(sph,lm,H,.38,-.1,0,.3,.2,.24,'head');M(sph,dm,H,.66,-.03,0,.06,.05,.08,'head');
+const eyes=[];for(const z of[-1,1]){const e=new T.Group();e.position.set(.27,.1,z*.2);H.add(e);M(sph,gm,e,0,0,0,.075,.07,.07,'head');M(sph,dm,e,.05,0,0,.03,.06,.025,'head');eyes.push(e)}
+const ears=[];for(const z of[1,-1]){const e=new T.Group();e.position.set(-.08,.3,z*.2);H.add(e);M(sph,fm,e,0,.08,0,.1,.14,.05,'head');M(sph,dm,e,0,.17,0,.07,.05,.04,'head');ears.push(e)}
+const jaw=new T.Group();jaw.position.set(.15,-.17,0);H.add(jaw);M(sph,lm,jaw,.18,0,0,.26,.06,.16,'head');
+for(const z of[-1,1]){const f=new T.Mesh(new T.ConeGeometry(.025,.1,6),mat(0xffffff));f.position.set(.3,.06,z*.08);jaw.add(f)}
+const legs=[],lg=new T.CylinderGeometry(.15,.11,.62,10).translate(0,-.31,0);
+[[.78,.3],[.78,-.3],[-.82,.32],[-.82,-.32]].forEach(([x,z],i)=>{const p=new T.Group();p.position.set(x,-.1,z);torso.add(p);const k=i<2?1:1.2;M(lg,fm,p,0,0,0,k,1,k,'paw');M(sph,fm,p,.06,-.64,0,.21,.11,.14,'paw');legs.push(p)});
+const tail=new T.Group();tail.position.set(-1.3,.12,0);torso.add(tail);let par=tail;const segs=[];
+for(let i=0;i<9;i++){const g=new T.CylinderGeometry(.09-i*.004,.085-i*.004,.3,8).rotateZ(Math.PI/2).translate(-.15,0,0),sg=new T.Group();if(i)sg.position.x=-.3;par.add(sg);M(g,i>6?dm:fm,sg,0,0,0,1,1,1,'tail');segs.push(sg);par=sg}
+const shd=new T.Mesh(new T.CircleGeometry(1,24),new T.MeshBasicMaterial({color:0,transparent:true,opacity:.28}));shd.rotation.x=-Math.PI/2;shd.position.y=.01;shd.scale.set(1.7,.7,1);sc.add(shd);
+/* ---------- audio ---------- */
+let AC,pg;
+function audio(){if(AC||!S.snd)return;try{AC=new(window.AudioContext||window.webkitAudioContext)();const o=AC.createOscillator(),f=AC.createBiquadFilter(),am=AC.createGain(),l=AC.createOscillator(),lg=AC.createGain();pg=AC.createGain();pg.gain.value=0;o.type='sawtooth';o.frequency.value=75;f.type='lowpass';f.frequency.value=320;am.gain.value=.5;l.frequency.value=24;lg.gain.value=.5;l.connect(lg);lg.connect(am.gain);o.connect(f);f.connect(am);am.connect(pg);pg.connect(AC.destination);o.start();l.start()}catch(e){AC=null}}
+function tone(f,d,ty='sine',v=.2,f2){if(!AC||!S.snd)return;const o=AC.createOscillator(),g=AC.createGain(),t=AC.currentTime;o.type=ty;o.frequency.setValueAtTime(f,t);if(f2)o.frequency.exponentialRampToValueAtTime(f2,t+d);g.gain.setValueAtTime(v*S.vol,t);g.gain.exponentialRampToValueAtTime(.001,t+d);o.connect(g);g.connect(AC.destination);o.start(t);o.stop(t+d)}
+function roar(){if(!AC||!S.snd)return;tone(95,1.4,'sawtooth',.5,45);const b=AC.createBuffer(1,AC.sampleRate*1.2|0,AC.sampleRate),d=b.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;const s=AC.createBufferSource(),f=AC.createBiquadFilter(),g=AC.createGain(),t=AC.currentTime;s.buffer=b;f.type='lowpass';f.frequency.setValueAtTime(600,t);f.frequency.linearRampToValueAtTime(150,t+1.2);g.gain.setValueAtTime(.5*S.vol,t);g.gain.linearRampToValueAtTime(0,t+1.2);s.connect(f);f.connect(g);g.connect(AC.destination);s.start()}
+const hoot=()=>{tone(330,.35,'sine',.18,280);setTimeout(()=>tone(300,.5,'sine',.18,240),420)};
+const chirp=()=>{tone(500,.15,'triangle',.2,900);setTimeout(()=>tone(700,.2,'triangle',.2,1100),170)};
+/* ---------- owls & bear ---------- */
+const eyeY=new T.MeshStandardMaterial({color:0xffd23a,emissive:0x443300});
+function mkOwl(){const g=new T.Group(),b=mat(0x7a5a3a),bd=new T.Group();g.add(bd);bd.rotation.z=-.5;M(sph,b,bd,0,0,0,.3,.42,.28);M(sph,mat(0xd8c4a0),bd,.08,-.05,0,.2,.3,.22);
+const h=M(sph,b,g,.12,.45,0,.26,.24,.25);for(const z of[-1,1]){M(sph,eyeY,h,.8,.1,z*.5,.35,.4,.3);M(sph,dm,h,1.05,.1,z*.5,.1,.2,.14)}
+const bk=new T.Mesh(new T.ConeGeometry(.05,.14,6),mat(0xe08a20));bk.rotation.z=-Math.PI/2;bk.position.set(.4,.4,0);g.add(bk);
+const w=[];for(const z of[1,-1]){const p=new T.Group();p.position.set(0,.15,z*.25);g.add(p);M(sph,mat(0x5c4128),p,0,0,z*.5,.3,.03,.5);w.push(p)}
+g.userData.w=w;g.scale.setScalar(1.1);return g}
+function mkBear(){const g=new T.Group(),b=mat(0x4b3426),l=mat(0x7a5a40),bd=new T.Group();g.add(bd);
+M(sph,b,bd,0,1,0,1.15,.8,.72);M(sph,b,bd,.7,1.3,0,.6,.6,.55);
+const hd=new T.Group();hd.position.set(1.5,1.45,0);bd.add(hd);M(sph,b,hd,0,0,0,.5,.42,.4);M(sph,l,hd,.45,-.1,0,.32,.2,.22);M(sph,dm,hd,.75,-.02,0,.07,.06,.08);
+for(const z of[-1,1]){M(sph,b,hd,-.1,.42,z*.3,.14,.14,.1);M(sph,eyeY,hd,.3,.12,z*.25,.06,.05,.05)}
+const jw=new T.Group();jw.position.set(.3,-.22,0);hd.add(jw);M(sph,l,jw,.15,0,0,.3,.07,.2);
+for(const z of[-1,1]){const f=new T.Mesh(new T.ConeGeometry(.04,.14,6),mat(0xffffff));f.position.set(.25,.08,z*.1);f.rotation.z=Math.PI;jw.add(f)}
+const lgs=[],gg=new T.CylinderGeometry(.22,.17,.9,10).translate(0,-.45,0);
+[[.8,.4],[.8,-.4],[-.8,.4],[-.8,-.4]].forEach(([x,z])=>{const p=new T.Group();p.position.set(x,.9,z);g.add(p);M(gg,b,p);lgs.push(p)});
+g.userData={hd,jw,lgs};g.scale.setScalar(1.1);g.rotation.y=Math.PI;return g}
+let owls=null,bear=null,bq=0,bgap=0;
+function startOwls(){if(owls)return;owls={g:[],f:0,out:false,hc:1};for(let i=0;i<3;i++){const g=mkOwl();g.userData.a=i*2.1;sc.add(g);owls.g.push(g)}msg('🦉 Совы кружат над леопардом! (игровая сцена)')}
+function stopOwls(){if(owls&&!owls.out){owls.out=true;msg('Совы улетели 🌙')}}
+function startBear(){if(chg)return;if(bear){bq=1;return}bear={t:0,g:mkBear(),r:0};sc.add(bear.g);msg('🐻 Появился медведь…')}
+/* ---------- state ---------- */
+const C={lie:0,str:0,hp:0,hy:0,paw:0,jaw:0,eye:0,earF:0,crouch:0,sw:0,tl:.1,ta:.15,tw:1.2},G={...C};
+const TP={happy:[.55,.35,2.2],playful:[.7,.5,3.2],curious:[.35,.2,1.6],calm:[.12,.15,1.2],tired:[-.1,.06,.8],alert:[.2,.4,5],sleep:[-.2,0,.5]};
+const RU={happy:'радость',playful:'игривость',curious:'любопытство',calm:'спокойствие',tired:'усталость',alert:'настороженность',sleep:'сон'};
+let lvl=60,chg=false,first=true,mood='calm',mt=0,act='idle',at=2,dir=1,ph=0,X=0,os=null,tailK=0,earK=0,purr=0,idleT=0,wakeT=0,bl=2,lookT=0,lookV=0,qT=40,hop=0,tm=0,taps=[];
+function calcMood(){if(owls||bear)return'alert';if(lvl<=5&&!chg)return'sleep';if(idleT>150&&!chg)return'sleep';if(lvl<50&&!(chg&&lvl>=35))return'tired';const r=Math.random(),t=P.trust>50?.15:0;if(lvl>=80)return r<.4+t?'happy':r<.75?'playful':'curious';return r<.5?'calm':r<.8?'curious':'happy'}
+function pickAct(m){const r=Math.random();if(m=='tired')return r<.5?'lie':r<.65?'yawn':r<.8?'idle':'look';if(m=='alert')return'idle';return r<.35?'walk':r<.5?'idle':r<.62?'look':r<.72?'stretch':r<.82?'wash':r<.9?'yawn':'lie'}
+const shot=(n,d)=>{os={n,t:0,d}};
+function scrSign(){return Math.cos(L.rotation.y)>0?-1:1}
+function applyShot(dt){if(!os)return;os.t+=dt;const e=Math.sin(Math.PI*Math.min(os.t/os.d,1)),n=os.n;
+if(n=='stretch'){G.str=e;G.hp=.2*e;G.tl=.6}
+else if(n=='wash'){G.paw=e*(.6+.4*Math.sin(os.t*11));G.hp=-.5*e;G.lie=Math.max(G.lie,.55*e)}
+else if(n=='yawn'){G.jaw=.9*e;G.hp=.4*e;G.eye=.8*e}
+else if(n=='ears'){earK=e;G.hy=Math.sin(os.t*9)*.3*e}
+else if(n=='tail'){G.hy=os.s*.9*e;tailK=1}
+else if(n=='paw'){G.paw=e*1.1}
+else if(n=='pull'){G.paw=e*1.7;G.crouch=.3*e;G.earF=.6*e}
+else if(n=='surprise'){G.hp=.35*e;G.earF=.7*e;G.hy=os.s*.8*e}
+else if(n=='screen'){G.hy=scrSign()*.95*e;G.hp=.2*e}
+else if(n=='lick'){G.jaw=.4*Math.abs(Math.sin(os.t*8))*e;G.hp=-.2*e}
+else if(n=='play'){G.crouch=.5*Math.min(1,e*2)*(os.t<os.d*.35?1:0);G.str=.5*e;G.tl=.8;G.ta=.6;G.tw=8;hop=os.t>os.d*.35?Math.abs(Math.sin(os.t*7))*.3*e:0}
+if(os.t>=os.d){os=null;hop=0}}
+function react(p){idleT=0;P.pets++;const now=performance.now();taps=taps.filter(t=>now-t<3000);taps.push(now);wakeT=5;if(act=='sleep'||act=='lie'){act='idle';at=3}
+const s=Math.random()<.5?-1:1,many=taps.length>=4,r=Math.random();
+if(many){if(r<.3)shot('surprise',1.4);else if(r<.55){act='walk';dir=-dir;at=3}else if(r<.8)shot('play',4);else shot('screen',2)}
+else if(p=='head'){shot('ears',1.3);P.trust=Math.min(100,P.trust+.4);if(r<.4)tone(520,.2,'sine',.12,420)}
+else if(p=='tail'){shot('tail',1.8);os.s=scrSign()}
+else if(p=='paw'){shot(r<.5?'paw':'pull',1.3)}
+else{if(P.trust<15&&r<.4){act='walk';dir=-dir;at=2}else if(r<.2)shot('surprise',1.4);else if(r<.35)shot('lick',2.2);else if(r<.5)shot('stretch',2.6);else if(r<.65)shot('play',4);else{purr=2;P.trust=Math.min(100,P.trust+.3)}}
+if(os&&os.n=='surprise')os.s=scrSign();if(os&&os.n=='tail')os.s=scrSign()}
+/* ---------- input ---------- */
+const ray=new T.Raycaster(),pt=new T.Vector2();
+function hit(e){pt.set(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)*2+1);ray.setFromCamera(pt,cam);const h=ray.intersectObject(L,true)[0];if(!h)return null;let o=h.object;while(o&&!o.userData.part)o=o.parent;return o?o.userData.part:'body'}
+let dn=null,lastTap=0,lastMv=0;const cv=$('c');
+cv.addEventListener('pointerdown',e=>{audio();dn={x:e.clientX,y:e.clientY,part:hit(e),mv:0,st:0}});
+cv.addEventListener('pointermove',e=>{if(!dn||!dn.part)return;dn.mv=Math.max(dn.mv,Math.hypot(e.clientX-dn.x,e.clientY-dn.y));const n=performance.now();if(dn.mv>14&&n-lastMv>80){lastMv=n;if(hit(e)){purr=2.2;idleT=0;wakeT=5;P.trust=Math.min(100,P.trust+.04);if(!dn.st){dn.st=1;P.pets++;if(act=='sleep'||act=='lie'){act='idle';at=3}}}}});
+cv.addEventListener('pointerup',e=>{if(!dn)return;const d=dn;dn=null;if(d.mv>14)return;const n=performance.now();if(n-lastTap<380){lastTap=0;openChat();return}lastTap=n;if(d.part)react(d.part)});
+/* ---------- messages ---------- */
+let mto,bto;
+function msg(t){const m=$('msg');m.textContent=t;m.style.opacity=1;clearTimeout(mto);mto=setTimeout(()=>m.style.opacity=0,4200)}
+function say(t){const b=$('bub');b.textContent=t;b.style.opacity=1;clearTimeout(bto);bto=setTimeout(()=>b.style.opacity=0,5000)}
+/* ---------- dictionary chat ---------- */
+const DI={};"hello=salom;hi=salom;thank you=rahmat;thanks=rahmat;yes=ha;no=yo’q;please=iltimos;sorry=kechirasiz;goodbye=xayr;bye=xayr;how are you=qalaysiz;good morning=xayrli tong;good night=xayrli tun;good evening=xayrli kech;i love you=seni sevaman;what is your name=ismingiz nima;water=suv;bread=non;apple=olma;book=kitob;house=uy;home=uy;friend=do’st;mother=ona;father=ota;sister=opa;brother=aka;child=bola;man=erkak;woman=ayol;boy=o’g’il bola;girl=qiz bola;good=yaxshi;bad=yomon;big=katta;small=kichik;sun=quyosh;moon=oy;star=yulduz;day=kun;night=tun;morning=ertalab;evening=kechqurun;love=sevgi;cat=mushuk;dog=it;bird=qush;owl=boyqush;bear=ayiq;leopard=qoplon;tiger=yo’lbars;horse=ot;food=ovqat;eat=yemoq;drink=ichmoq;sleep=uxlamoq;go=bormoq;come=kelmoq;see=ko’rmoq;know=bilmoq;want=xohlamoq;play=o’ynamoq;run=yugurmoq;walk=yurmoq;read=o’qimoq;write=yozmoq;speak=gapirmoq;school=maktab;teacher=o’qituvchi;student=talaba;city=shahar;country=mamlakat;road=yo’l;car=mashina;phone=telefon;battery=batareya;charge=zaryad;tree=daraxt;flower=gul;river=daryo;mountain=tog’;sea=dengiz;red=qizil;blue=ko’k;green=yashil;white=oq;black=qora;yellow=sariq;one=bir;two=ikki;three=uch;four=to’rt;five=besh;six=olti;seven=yetti;eight=sakkiz;nine=to’qqiz;ten=o’n;today=bugun;tomorrow=ertaga;yesterday=kecha;tea=choy;milk=sut;meat=go’sht;fish=baliq;hand=qo’l;head=bosh;eye=ko’z;ear=quloq;tail=dum;paw=panja;fur=mo’yna;name=ism;time=vaqt;work=ish;money=pul;happy=xursand;sad=xafa;tired=charchagan;hungry=och;cold=sovuq;hot=issiq;new=yangi;old=eski;beautiful=chiroyli;fast=tez;slow=sekin;i=men;you=sen;he=u;she=u;we=biz;they=ular;is=;are=;am=;the=;a=;what=nima;where=qayerda;who=kim;why=nega;when=qachon;my=mening;your=sening;with=bilan;and=va;but=lekin;very=juda;here=bu yerda;there=u yerda;wind=shamol;rain=yomg’ir;snow=qor;fire=olov;sky=osmon;earth=yer;forest=o’rmon;king=podshoh;life=hayot;world=dunyo;heart=yurak;family=oila;table=stol;door=eshik;window=deraza;city=shahar".split(';').forEach(p=>{const[k,v]=p.split('=');DI[k]=v});
+const QS={happy:[["Bugun juda xursandman! Sen nima qilyapsan?","Я так рад! Чем занята/занят ты?"]],playful:[["Kel, o’ynaymiz! Sen nima qilyapsan?","Давай играть! Чем занят?"]],curious:[["Bu nima? Sen nima bilan bandsan?","Что это? Чем ты занят?"]],calm:[["Tinchgina o’tiribman. Sen nima qilyapsan?","Спокойно сижу. А ты чем занят?"]],tired:[["Charchadim… Sen nima qilyapsan?","Устал… А ты что делаешь?"]],alert:[["Ehtiyot bo’l! Atrofda xavf bor!","Осторожно! Вокруг опасность!"]],sleep:[["Uyqum keldi… zzz","Хочу спать… zzz"]]};
+function tr(t){const w=t.toLowerCase().replace(/[.,!?;:"]/g,' ').split(/\s+/).filter(Boolean),o=[];let un=0;for(let i=0;i<w.length;){let ok=0;for(let n=Math.min(3,w.length-i);n>0;n--){const k=w.slice(i,i+n).join(' ');if(k in DI){if(DI[k])o.push(DI[k]);i+=n;ok=1;break}}if(!ok){o.push(w[i]);un++;i++}}return{s:o.join(' '),un,n:w.length}}
+function addCh(w,t){const d=document.createElement('div');d.className='m '+w;d.textContent=t;$('lg').append(d);$('lg').scrollTop=1e9}
+function openChat(){audio();$('chat').hidden=false;if(!$('lg').children.length){const q=rn(QS[mood]);addCh('l',q[0]+' ('+q[1]+')')}idleT=0;wakeT=8;shot('screen',2)}
+function send(){const v=$('in').value.trim();if(!v)return;$('in').value='';addCh('u',v);idleT=0;const r=tr(v);let a;
+if(r.un==r.n)a='Bu so’zni bilmayman 😿 (не знаю этого слова — пробуй английские)';else{a=r.s.charAt(0).toUpperCase()+r.s.slice(1);if(r.un)a+='  (часть слов не нашёл)'}
+setTimeout(()=>{addCh('l',a);if(Math.random()<.35){const q=rn(QS[mood]);setTimeout(()=>addCh('l',q[0]+' ('+q[1]+')'),700)}tone(600,.12,'triangle',.12)},350);P.trust=Math.min(100,P.trust+.5)}
+$('go').onclick=send;$('in').onkeydown=e=>{if(e.key=='Enter')send()};$('x').onclick=()=>$('chat').hidden=true;
+/* ---------- battery ---------- */
+function setBat(n,c){n=Math.round(n);const p=lvl,pc=chg;lvl=n;chg=!!c;$('bat').textContent='🔋 '+n+'%'+(c?' ⚡':'');
+if(first){first=false;if(n<=20&&!c&&n>5)startOwls();mt=0;return}
+if(c&&!pc){shot('screen',2.4);say('Ой, зарядка! ⚡');if(bear)bear.t=Math.max(bear.t,5.2);bq=0}
+if(!c&&pc){say('Отключили зарядку…');if(n<=20&&n>5)startOwls()}
+if(n<=20&&p>20&&!c)startOwls();
+if(owls&&!owls.out&&((c&&n>=20)||n>20||n<=5))stopOwls();
+if(n<=10&&n<p&&!c)startBear();
+if(c&&n>=100&&p<100){shot('play',6);msg('100%! Леопард счастлив 🎉');chirp()}
+mt=0}
+let bf=null;
+function useBat(){if(S.sim)setBat(S.simLvl,S.simChg);else if(bf)bf()}
+(async()=>{try{const b=await navigator.getBattery();bf=()=>setBat(b.level*100,b.charging);b.addEventListener('levelchange',()=>{if(!S.sim)bf()});b.addEventListener('chargingchange',()=>{if(!S.sim)bf()});$('inf').textContent='Читаю реальный заряд устройства (Battery API).'}catch(e){S.sim=true;$('sm').checked=true;$('inf').textContent='Battery API недоступен здесь — включена симуляция. Реальный заряд читается в Chrome на Android; в нативном приложении — через BatteryManager.'}useBat()})();
+/* ---------- settings ---------- */
+$('gear').onclick=()=>{$('set').hidden=!$('set').hidden;if(!$('set').hidden)$('tr').textContent='Доверие: '+Math.round(P.trust)+'% · касаний: '+P.pets};
+$('sn').checked=S.snd;$('vo').value=S.vol;$('fq').value=S.freq;$('sm').checked=S.sim;$('sl').value=S.simLvl;$('sv').textContent=S.simLvl;$('sc').checked=S.simChg;
+$('sn').onchange=e=>{S.snd=e.target.checked;if(S.snd)audio();save()};$('vo').oninput=e=>{S.vol=+e.target.value;save()};$('fq').oninput=e=>{S.freq=+e.target.value;save()};
+$('sm').onchange=e=>{S.sim=e.target.checked;save();useBat()};$('sl').oninput=e=>{S.simLvl=+e.target.value;$('sv').textContent=S.simLvl;S.sim=true;$('sm').checked=true;useBat()};$('sc').onchange=e=>{S.simChg=e.target.checked;S.sim=true;$('sm').checked=true;useBat()};
+/* ---------- main step ---------- */
+const v3=new T.Vector3();
+function step(dt){idleT+=dt;wakeT=Math.max(0,wakeT-dt);mt-=dt;if(mt<=0){mt=5;mood=calcMood();$('md').textContent=RU[mood]}
+let m=mood;if(m=='sleep'&&wakeT>0)m='tired';
+Object.assign(G,{lie:0,str:0,hp:.05,hy:0,paw:0,jaw:0,eye:0,earF:m=='tired'?.2:0,crouch:0,sw:0});const tp=TP[m];G.tl=tp[0];G.ta=tp[1];G.tw=tp[2];
+const lim=Math.max(.3,Math.min(2.3,vis-1.3));let mv=0,retreat=false;
+if(owls&&!owls.out){G.crouch=.5;G.hp=.55;G.earF=1;act='idle'}
+if(bear){act='idle';if(bear.r){retreat=true;G.crouch=.35;G.earF=1;G.jaw=.15;G.hp=.1}}
+if(m=='sleep'&&!os){act='sleep'}else if(act=='sleep'){act='idle';at=1}
+if(!owls&&!bear&&!os){at-=dt;if(at<=0){const a=pickAct(m);at=(3+Math.random()*5)/S.freq;act='idle';if(a=='walk'){act='walk';dir=Math.random()<.5?-1:1}else if(a=='lie'){act='lie';at=(6+Math.random()*8)/S.freq}else if(a=='look'){act='look'}else if(a!='idle')shot(a,a=='wash'?4:2.6)}}
+if(act=='lie'||act=='sleep'){G.lie=1;if(act=='sleep'){G.eye=1;G.hp=-.45}}
+if(act=='look'){lookT-=dt;if(lookT<=0){lookV=(Math.random()-.5)*1.4;lookT=1.2+Math.random()}G.hy=lookV}
+if(act=='walk'&&!owls&&!bear){mv=(m=='playful'||m=='happy'?1:.7)*(m=='tired'?.5:1);X+=dir*mv*.9*dt;if(X>lim){X=lim;dir=-1}else if(X<-lim){X=-lim;dir=1};G.sw=1}
+if(retreat){if(X>-lim)X-=.7*dt;G.sw=X>-lim?1:0}
+applyShot(dt);
+earK=Math.max(0,earK-dt*1.5);tailK=Math.max(0,tailK-dt*.5);if(!(--ek>0)){ek=90+Math.random()*120|0;earK=.8}
+if(tailK>0){G.ta=Math.max(G.ta,.8*tailK);G.tw=9}
+bl-=dt;if(bl<=0){G.eye=1;if(bl<-.12)bl=2+Math.random()*3}
+if(purr>0){purr-=dt;G.eye=Math.max(G.eye,.9);G.jaw=Math.max(G.jaw,.05);G.tw*=.5}
+if(AC&&pg)pg.gain.setTargetAtTime(purr>0&&S.snd?S.vol*.3:0,AC.currentTime,.15);
+for(const k in C)C[k]+=(G[k]-C[k])*Math.min(1,dt*(k=='lie'?2.5:5));
+const ft=(owls||bear)?0:(dir>0?0:Math.PI);L.rotation.y+=(ft-L.rotation.y)*Math.min(1,dt*3);
+L.position.x=X;shd.position.x=X;
+ph+=dt*(retreat?-1:1)*Math.max(mv,retreat?.6:0)*7;
+legs.forEach((p,i)=>{const a=Math.sin(ph+(i%3==0?0:Math.PI))*.55*C.sw;p.rotation.z=a*(1-C.lie)+(i<2?1.25:-1.1)*C.lie+(i<2?C.str:0)+(i==0?1.6*C.paw:0)});
+torso.position.y=.93-.5*C.lie-.14*C.crouch+Math.sin(tm*(m=='sleep'?1.2:2))*.015+hop;torso.rotation.z=-.2*C.str;
+H.rotation.z=C.hp;H.rotation.y=C.hy;jaw.rotation.z=-C.jaw;eyes.forEach(e=>e.scale.y=Math.max(.08,1-C.eye));
+ears[0].rotation.x=C.earF*.9+Math.sin(tm*40)*.25*earK;ears[1].rotation.x=-(C.earF*.9+Math.sin(tm*37)*.25*earK);ears.forEach(e=>e.rotation.z=-C.earF*.6);
+segs.forEach((s,i)=>{s.rotation.z=(i?0:-C.tl)+Math.sin(tm*C.tw-i*.55)*C.ta*(.5+i*.1)*(i?.6:.3);s.rotation.y=Math.sin(tm*C.tw*.7-i*.4)*C.ta*.5});
+/* owls */
+if(owls){const o=owls;o.f=Math.max(0,Math.min(1,o.f+dt*(o.out?-.4:.5)));o.hc-=dt;if(o.hc<=0&&!o.out){o.hc=4+Math.random()*2;hoot()}
+o.g.forEach((g,i)=>{const u=g.userData;u.a+=dt*(.9+i*.12);g.position.set(X+Math.cos(u.a)*2.4,3+.5*Math.sin(u.a*2)+(1-o.f)*5,Math.sin(u.a)*1.6);g.rotation.y=-(u.a+Math.PI/2);const f=Math.sin(tm*9+i)*.7;u.w[0].rotation.x=f;u.w[1].rotation.x=-f;g.scale.setScalar(1.1*Math.max(.01,o.f))});
+if(o.out&&o.f<=0){o.g.forEach(g=>sc.remove(g));owls=null}}
+/* bear */
+if(bgap>0){bgap-=dt;if(bgap<=0&&!chg&&lvl<=10&&!bear)startBear()}
+if(bear){const b=bear,g=b.g,u=g.userData;b.t+=dt;const xs=vis+.5,e=x=>x*x*(3-2*x);let mvB=0;
+if(b.t<2.8){g.position.x=xs+4*(1-e(b.t/2.8));mvB=1}else if(b.t<5.2){g.position.x=xs;u.hd.rotation.z=.3+Math.sin(tm*22)*.04;u.jw.rotation.z=-.55;if(!b.ro){b.ro=1;roar()}}else{g.position.x=xs+4*e(Math.min(1,(b.t-5.2)/2.8));mvB=1;u.jw.rotation.z=0;u.hd.rotation.z=0}
+b.r=b.t>2.2&&b.t<6;g.position.z=-.3;u.lgs.forEach((p,i)=>p.rotation.z=Math.sin(b.t*5+(i%3?Math.PI:0))*.45*mvB);
+if(b.t>8){sc.remove(g);bear=null;if(bq){bq=0;bgap=2.5}}}
+/* bubble & questions */
+qT-=dt;if(qT<=0){qT=50+Math.random()*60;if(!owls&&!bear&&m!='sleep'){const q=rn(QS[m]||QS.calm);say(q[0]);if(!$('chat').hidden)addCh('l',q[0]+' ('+q[1]+')')}}
+if(m=='sleep'&&Math.random()<dt*.15)say('zZz…');
+H.getWorldPosition(v3);v3.y+=.5;v3.project(cam);const bb=$('bub');bb.style.left=Math.max(8,Math.min(innerWidth-bb.offsetWidth-8,(v3.x+1)/2*innerWidth-bb.offsetWidth/2))+'px';bb.style.top=Math.max(50,(1-v3.y)/2*innerHeight-bb.offsetHeight-8)+'px'}
+let ek=60,last=performance.now(),acc=0;
+function loop(now){requestAnimationFrame(loop);let dt=(now-last)/1000;last=now;if(dt>.1)dt=.1;acc+=dt;if(acc<1/30)return;dt=acc;acc=0;tm+=dt;step(dt);R.render(sc,cam)}
+requestAnimationFrame(loop);setInterval(save,10000);document.addEventListener('visibilitychange',()=>{if(document.hidden)save()});
+setTimeout(()=>say('Mrrr… salom! 🐆'),800);
+</script></body></html>
